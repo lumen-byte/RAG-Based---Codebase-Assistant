@@ -1,8 +1,11 @@
+import logging
 import os
 import re
 from typing import Dict, List
 
 from github import Github, GithubException
+
+logger = logging.getLogger(__name__)
 
 # Extensions corresponding to code files typical in modern codebases
 SUPPORTED_EXTENSIONS = {
@@ -29,7 +32,7 @@ class GithubFetcher:
         :param url: The GitHub repository URL (e.g., https://github.com/owner/repo)
         :return: A tuple of (owner, repo_name)
         """
-        # Clean up the URL format
+        # Clean up the URL format — Pydantic HttpUrl may add a trailing slash
         url = url.rstrip("/").removesuffix(".git")
         
         match = re.search(r"github\.com/([^/]+)/([^/]+)", url)
@@ -48,6 +51,7 @@ class GithubFetcher:
         """
         owner, repo_name = self.parse_github_url(repo_url)
         full_name = f"{owner}/{repo_name}"
+        logger.info(f"Connecting to GitHub repository: {full_name}")
         
         try:
             repo = self.github_client.get_repo(full_name)
@@ -78,14 +82,19 @@ class GithubFetcher:
                 # Filter strictly by supported programming language extensions
                 if ext.lower() in SUPPORTED_EXTENSIONS:
                     try:
-                        # Decode the file content natively via PyGithub's base64 handler
-                        content = file_content.decoded_content.decode("utf-8")
+                        # decoded_content returns None for files >1MB (GitHub API limitation for large blobs)
+                        raw = file_content.decoded_content
+                        if raw is None:
+                            logger.warning(f"Skipping {file_content.path}: file too large, GitHub API returned no inline content.")
+                            continue
+                        content = raw.decode("utf-8", errors="ignore")
                         extracted_files.append({
                             "path": file_content.path,
                             "content": content
                         })
+                        logger.info(f"Fetched: {file_content.path}")
                     except Exception as e:
-                        # Continue processing rather than failing the entire fetch
-                        print(f"Skipping {file_content.path}: could not decode as UTF-8. Error: {e}")
+                        logger.warning(f"Skipping {file_content.path}: could not decode content. Error: {e}")
 
+        logger.info(f"Total files fetched from {full_name}: {len(extracted_files)}")
         return extracted_files

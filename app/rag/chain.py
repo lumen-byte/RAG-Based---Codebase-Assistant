@@ -1,98 +1,124 @@
-import os
-from typing import Any, Dict
+import logging
+import time
+import json
+from typing import Any, Dict, Generator
 
-from openai import OpenAI
+from groq import Groq
 
-# Import the tools we built earlier
 from app.ingestion.embedder import CodeEmbedder
 from app.retrieval.vector_store import VectorDBClient
+from app.config import GROQ_API_KEY
+
+logger = logging.getLogger(__name__)
+
+MAX_CONTEXT_CHARS = 2000
+
+# llama-3.1-8b-instant: free on Groq, ~200 tokens/sec, excellent at code
+GROQ_MODEL = "llama-3.1-8b-instant"
+
 
 class RAGChain:
     """
-    This class ties everything together! It acts as the brain of the assistant.
-    It takes a user's question, finds the relevant code from the database, 
-    and asks the AI to answer the question using that specific code.
+    RAG pipeline using Groq cloud inference for fast, free LLM responses.
+    Groq runs Llama 3.1 8B at 200+ tokens/sec — ~100x faster than local CPU.
     """
-    
+
     def __init__(self):
-        """
-        Initialize the core tools we need: the embedder, the database client, 
-        and the OpenAI client.
-        """
         self.embedder = CodeEmbedder()
         self.db_client = VectorDBClient()
-        
-        # We use the official OpenAI client to talk to GPT-4o-mini
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is not set. Please set it in your .env file.")
-            
-        self.openai_client = OpenAI(api_key=api_key)
-        
-    def ask_question(self, question: str) -> Dict[str, Any]:
-        """
-        Answers a question about the codebase and provides exactly where it found the answer.
-        
-        :param question: The user's question (e.g., "Where is the user password hashed?")
-        :return: A dictionary containing the text 'answer' and a list of 'citations'.
-        """
-        # Step 1: Turn the user's question into a mathematical vector (embedding)
-        query_vector = self.embedder.generate_embedding(question)
-        
-        # Step 2: Search the vector database for the top 5 most relevant code chunks
-        search_results = self.db_client.search_similar(query_embedding=query_vector, top_k=5)
-        
-        # Step 3: Build a "Context String" and collect citations
-        # We will paste all the retrieved code into one big string to show the AI.
-        context_string = ""
-        citations = []
-        
-        for idx, result in enumerate(search_results):
-            # Extract the stored data (payload) from the database result
-            payload = result["payload"]
-            file_path = payload.get("file_path", "unknown_file")
-            content = payload.get("content", "")
-            start_line = payload.get("start_line", 0)
-            end_line = payload.get("end_line", 0)
-            
-            # Add this code chunk to our big context string so the AI can read it
-            context_string += f"\n--- Code Snippet {idx + 1} ---\n"
-            context_string += f"File: {file_path} (Lines {start_line}-{end_line})\n"
-            context_string += f"{content}\n"
-            
-            # Save the citation info to return to the user later
-            citations.append({
-                "file_path": file_path,
-                "start_line": start_line,
-                "end_line": end_line
-            })
+        self.groq_client = Groq(api_key=GROQ_API_KEY)
+        logger.info(f"RAGChain ready. Using Groq model: {GROQ_MODEL}")
 
-        # Step 4: Write the prompt for GPT-4o-mini
-        # We tell the AI how to behave and give it the code context.
-        system_prompt = (
-            "You are an expert programming assistant. Answer the user's question "
-            "based ONLY on the provided code snippets. If the answer is not in the "
-            "code snippets, politely say 'I cannot find the answer in the provided codebase.' "
-            "Keep your explanation clear, professional, and beginner-friendly."
+    def _retrieve(self, question: str):
+        """Embed the question and retrieve top-2 relevant code chunks."""
+        vector = self.embedder.generate_embedding(question)
+        results = self.db_client.search_similar(query_embedding=vector, top_k=2)
+
+        if not results:
+            return None, []
+
+        context, citations = "", []
+        for i, r in enumerate(results):
+            p = r["payload"]
+            file_path = p.get("file_path", "unknown")
+            content = p.get("content", "")
+            s, e = p.get("start_line", 0), p.get("end_line", 0)
+
+            if len(content) > 800:
+                content = content[:800] + "\n...[truncated]"
+
+            snippet = f"[{i+1}] {file_path} L{s}-{e}:\n{content}\n"
+            if len(context) + len(snippet) > MAX_CONTEXT_CHARS:
+                break
+            context += snippet
+            citations.append({"file_path": file_path, "start_line": s, "end_line": e})
+
+        return context, citations
+
+    def _messages(self, question: str, context: str):
+        """Build the chat messages list for the Groq API."""
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert code analyst. You are given source code snippets "
+                    "from a real project. Explain clearly what the code does, mentioning "
+                    "specific class names, function names, and libraries. Be concise and accurate."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Code:\n{context}\n\nQuestion: {question}",
+            },
+        ]
+
+    def ask_question(self, question: str) -> Dict[str, Any]:
+        """Non-streaming: returns full answer + citations."""
+        t0 = time.perf_counter()
+        context, citations = self._retrieve(question)
+
+        if context is None:
+            return {"answer": "No relevant code found. Please ingest a repository first.", "citations": []}
+
+        response = self.groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=self._messages(question, context),
+            max_tokens=512,
+            temperature=0.2,
         )
-        
-        user_prompt = f"Code Context:\n{context_string}\n\nUser Question: {question}"
-        
-        # Step 5: Send it to OpenAI!
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.2  # A low temperature keeps the AI focused, factual, and less "creative"
-        )
-        
-        # Extract the text answer from the AI's response
-        answer_text = response.choices[0].message.content
-        
-        # Step 6: Return the final packaged answer and citations
-        return {
-            "answer": answer_text,
-            "citations": citations
-        }
+        answer = response.choices[0].message.content.strip()
+        logger.info(f"Groq RAG completed in {time.perf_counter()-t0:.2f}s")
+        return {"answer": answer, "citations": citations}
+
+    def stream_question(self, question: str) -> Generator[str, None, None]:
+        """
+        SSE streaming via Groq. First token arrives in ~0.3-0.5s.
+        Yields: 'data: {"token":"..."}\n\n' per token
+                'data: {"citations":[...],"done":true}\n\n' at end
+        """
+        context, citations = self._retrieve(question)
+
+        if context is None:
+            yield f'data: {json.dumps({"token": "No relevant code found. Please ingest a repository first."})}\n\n'
+            yield f'data: {json.dumps({"citations": [], "done": True})}\n\n'
+            return
+
+        try:
+            stream = self.groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=self._messages(question, context),
+                max_tokens=512,
+                temperature=0.2,
+                stream=True,
+            )
+
+            for chunk in stream:
+                token = chunk.choices[0].delta.content
+                if token:
+                    yield f'data: {json.dumps({"token": token})}\n\n'
+
+        except Exception as e:
+            logger.error(f"Groq streaming error: {e}")
+            yield f'data: {json.dumps({"token": f"Error: {str(e)}"})}\n\n'
+
+        yield f'data: {json.dumps({"citations": citations, "done": True})}\n\n'

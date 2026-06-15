@@ -6,6 +6,8 @@ from typing import Any, Dict, List
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
+from app.config import QDRANT_HOST, QDRANT_PORT
+
 # Configure logger for tracking database operations
 logger = logging.getLogger(__name__)
 
@@ -16,26 +18,22 @@ class VectorDBClient:
     embedded code chunks, and fast semantic retrieval operations.
     """
     
-    def __init__(self, collection_name: str = "codebase_chunks", vector_size: int = 1536):
+    def __init__(self, collection_name: str = "codebase_chunks_local", vector_size: int = 384):
         """
         Initializes the Qdrant client connection and ensures the target collection exists.
         
         :param collection_name: Name of the collection to store codebase vectors.
-        :param vector_size: Size of the embedding vectors (1536 is standard for OpenAI text-embedding-3-small).
+        :param vector_size: Size of the embedding vectors (384 is standard for all-MiniLM-L6-v2).
         """
         self.collection_name = collection_name
         self.vector_size = vector_size
         
-        # Load connection settings from the environment with sensible fallbacks
-        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        
         try:
             # Initialize the Qdrant client. 
-            self.client = QdrantClient(host=qdrant_host, port=qdrant_port)
+            self.client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
             self._ensure_collection_exists()
         except Exception as e:
-            logger.error(f"Failed to connect to Qdrant at {qdrant_host}:{qdrant_port} - {e}")
+            logger.error(f"Failed to connect to Qdrant at {QDRANT_HOST}:{QDRANT_PORT} - {e}")
             raise RuntimeError(f"Vector database connection failed: {e}")
 
     def _ensure_collection_exists(self):
