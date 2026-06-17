@@ -18,7 +18,7 @@ def _get_local_model():
         logger.info("Embedding model loaded and cached in memory.")
     return _model_instance
 
-# --- Module-level singleton for OpenAI client ---
+# --- Module-level singleton for OpenAI client---
 _openai_client = None
 
 def _get_openai_client():
