@@ -78,7 +78,10 @@ class RAGChain:
         context, citations = self._retrieve(question)
 
         if context is None:
-            return {"answer": "No relevant code found. Please ingest a repository first.", "citations": []}
+            return {
+                "answer": "No relevant code found. Please ingest a repository first.",
+                "citations": [],
+            }
 
         response = self.groq_client.chat.completions.create(
             model=GROQ_MODEL,
