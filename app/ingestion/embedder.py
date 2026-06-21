@@ -78,31 +78,43 @@ class CodeEmbedder:
             self.local_model = _get_local_model()
 
     def generate_embedding(self, text: str) -> List[float]:
-        if not text or not text.strip():
-            raise ValueError("Cannot generate embedding for an empty string.")
+        """Backward compatibility: Generate embedding for a single text."""
+        return self.generate_embeddings_batch([text])[0]
+
+    def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+
+        # Filter out empty strings to prevent API errors
+        valid_texts = [t.strip() for t in texts if t and t.strip()]
+        if not valid_texts:
+            raise ValueError("All texts in the batch were empty.")
 
         try:
             if self.provider == "openai" and self.openai_client:
                 response = self.openai_client.embeddings.create(
                     model="text-embedding-3-small",
-                    input=text.strip(),
+                    input=valid_texts,
                     dimensions=384,  # Matches the dimension of all-MiniLM-L6-v2
                 )
-                return response.data[0].embedding
+                return [item.embedding for item in response.data]
+            
             elif self.provider == "gemini" and self.gemini_client:
-                # Generate embedding with text-embedding-004 and outputDimensionality=384
+                # Generate embeddings in batch
                 response = self.gemini_client.models.embed_content(
                     model="text-embedding-004",
-                    contents=text.strip(),
+                    contents=valid_texts,
                     config={"output_dimensionality": 384},
                 )
-                return response.embeddings[0].values
+                return [emb.values for emb in response.embeddings]
+                
             elif self.local_model:
                 return self.local_model.encode(
-                    text.strip(), normalize_embeddings=True
+                    valid_texts, normalize_embeddings=True
                 ).tolist()
+                
             else:
                 raise RuntimeError("No embedding provider is properly initialized.")
         except Exception as e:
-            logger.error(f"Embedding failed: {e}")
-            raise RuntimeError(f"Failed to generate embedding: {e}")
+            logger.error(f"Batch embedding failed: {e}")
+            raise RuntimeError(f"Failed to generate embeddings batch: {e}")

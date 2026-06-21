@@ -1,10 +1,12 @@
 import logging
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl
 
 # Import our custom RAG modules
+from app.config import EMBEDDING_BATCH_SIZE
 from app.ingestion.code_chunker import PythonCodeChunker
 from app.ingestion.embedder import CodeEmbedder
 from app.retrieval.vector_store import VectorDBClient
@@ -95,19 +97,56 @@ def ingest_repository(request: IngestRequest) -> IngestResponse:
             
         logger.info(f"Successfully generated {len(all_chunks)} chunks.")
         
-        # Step 3: Generate embeddings for each chunk
-        logger.info("Starting embedding generation...")
+        # Step 3: Generate embeddings for each chunk in batches
+        logger.info(f"Starting batched embedding generation for {len(all_chunks)} chunks (Batch Size: {EMBEDDING_BATCH_SIZE})...")
         embeddings = []
-        for chunk in all_chunks:
-            # We embed the actual source code content so it can be semantically searched later
-            embedding = embedder.generate_embedding(chunk["content"])
-            embeddings.append(embedding)
+        
+        start_time = time.time()
+        
+        # We need a list to keep track of successfully embedded chunks (since some batches may permanently fail)
+        successful_chunks = []
+        
+        for i in range(0, len(all_chunks), EMBEDDING_BATCH_SIZE):
+            batch = all_chunks[i:i + EMBEDDING_BATCH_SIZE]
+            batch_texts = [chunk["content"] for chunk in batch]
             
-        logger.info(f"Successfully generated {len(embeddings)} embeddings.")
+            batch_start_time = time.time()
+            
+            # Retry logic for the batch (up to 3 tries)
+            retries = 3
+            success = False
+            for attempt in range(retries):
+                try:
+                    batch_embeddings = embedder.generate_embeddings_batch(batch_texts)
+                    
+                    # Ensure the API returned the expected number of embeddings
+                    if len(batch_embeddings) != len(batch):
+                        raise ValueError(f"API returned {len(batch_embeddings)} embeddings but expected {len(batch)}")
+                        
+                    embeddings.extend(batch_embeddings)
+                    successful_chunks.extend(batch)
+                    success = True
+                    break
+                except Exception as e:
+                    logger.warning(f"Batch {i//EMBEDDING_BATCH_SIZE + 1} failed on attempt {attempt + 1}: {e}")
+                    time.sleep(1) # Backoff before retry
+                    
+            if success:
+                batch_duration = time.time() - batch_start_time
+                logger.info(f"Successfully processed batch {i//EMBEDDING_BATCH_SIZE + 1} ({len(batch)} chunks) in {batch_duration:.2f}s")
+            else:
+                logger.error(f"Batch {i//EMBEDDING_BATCH_SIZE + 1} permanently failed after {retries} retries. Skipping {len(batch)} chunks (indexes {i} to {i+len(batch)-1}).")
+
+        total_embedding_time = time.time() - start_time
+        
+        if not embeddings:
+            raise HTTPException(status_code=500, detail="Failed to generate embeddings for all chunks.")
+            
+        logger.info(f"Completed embedding generation: {len(embeddings)} total embeddings generated in {total_embedding_time:.2f}s")
             
         # Step 4: Store chunks and their embeddings in Qdrant
         logger.info("Starting Qdrant insertion...")
-        vector_db.store_chunks(chunks=all_chunks, embeddings=embeddings)
+        vector_db.store_chunks(chunks=successful_chunks, embeddings=embeddings)
         
         logger.info("Successfully inserted chunks into Qdrant.")
         
