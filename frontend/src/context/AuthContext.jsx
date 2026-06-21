@@ -1,35 +1,30 @@
-import React, { createContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useState } from 'react';
 import { jwtDecode } from 'jwt-decode';
 
 export const AuthContext = createContext({
   user: null,
   token: null,
-  login: (token) => {},
+  login: () => {},
   logout: () => {},
 });
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem('access_token'));
 
-  useEffect(() => {
-    if (token) {
-      try {
-        const decoded = jwtDecode(token);
-        // The backend `create_access_token` sets `sub` to the user's email
-        setUser({ email: decoded.sub });
-        localStorage.setItem('access_token', token);
-      } catch (err) {
-        console.error("Invalid token", err);
-        setToken(null);
-        setUser(null);
-        localStorage.removeItem('access_token');
-      }
-    } else {
-      setUser(null);
+  let user = null;
+  if (token) {
+    try {
+      const decoded = jwtDecode(token);
+      user = { email: decoded.sub };
+      localStorage.setItem('access_token', token);
+    } catch (err) {
+      console.error("Invalid token", err);
       localStorage.removeItem('access_token');
     }
-  }, [token]);
+  } else {
+    localStorage.removeItem('access_token');
+  }
 
   const login = (newToken) => {
     setToken(newToken);

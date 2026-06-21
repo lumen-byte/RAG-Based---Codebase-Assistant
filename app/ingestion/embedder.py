@@ -102,7 +102,7 @@ class CodeEmbedder:
             elif self.provider == "gemini" and self.gemini_client:
                 # Generate embeddings in batch
                 response = self.gemini_client.models.embed_content(
-                    model="text-embedding-004",
+                    model="embedding-001",
                     contents=valid_texts,
                     config={"output_dimensionality": 384},
                 )

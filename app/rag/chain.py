@@ -8,14 +8,11 @@ from groq import Groq
 from app.ingestion.embedder import CodeEmbedder
 from app.retrieval.vector_store import VectorDBClient
 from app.rag.query_analyzer import QueryAnalyzer
-from app.config import GROQ_API_KEY
+from app.config import GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER
 
 logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_CHARS = 2000
-
-# llama-3.1-8b-instant: free on Groq, ~200 tokens/sec, excellent at code
-GROQ_MODEL = "llama-3.1-8b-instant"
 
 
 class RAGChain:
@@ -43,16 +40,22 @@ class RAGChain:
                 target_modules = self.query_analyzer.detect_intent(question, main_modules)
         
         # Vector Generation Phase
+        t_embed_start = time.perf_counter()
         vector = self.embedder.generate_embedding(question)
+        t_embed = time.perf_counter() - t_embed_start
         
         # Database Retrieval Phase
+        t_db_start = time.perf_counter()
         results = self.db_client.search_similar(query_embedding=vector, top_k=2, target_modules=target_modules)
+        t_db = time.perf_counter() - t_db_start
         
-        t_retrieval = time.perf_counter() - t_start
-        logger.info(f"Retrieval Phase completed in {t_retrieval:.2f}s")
+        metrics = {
+            "embedding_time": t_embed,
+            "retrieval_time": t_db
+        }
 
         if not results:
-            return None, []
+            return None, [], metrics
 
         context, citations = "", []
         for i, r in enumerate(results):
@@ -70,7 +73,7 @@ class RAGChain:
             context += snippet
             citations.append({"file_path": file_path, "start_line": s, "end_line": e})
 
-        return context, citations
+        return context, citations, metrics
 
     def _messages(self, question: str, context: str, repo_summary: dict | None = None) -> Any:
         """Build the chat messages list for the Groq API."""
@@ -108,9 +111,10 @@ class RAGChain:
         ]
 
     def ask_question(self, question: str, repo_summary: dict | None = None) -> Dict[str, Any]:
-        """Non-streaming: returns full answer + citations."""
-        t0 = time.perf_counter()
-        context, citations = self._retrieve(question, repo_summary)
+        """Non-streaming: returns full answer + citations with accurate metrics."""
+        t_start = time.perf_counter()
+        
+        context, citations, metrics = self._retrieve(question, repo_summary)
 
         if context is None:
             return {
@@ -118,15 +122,35 @@ class RAGChain:
                 "citations": [],
             }
 
-        response = self.groq_client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=self._messages(question, context, repo_summary),
-            max_tokens=512,
-            temperature=0.2,
+        t_prompt_start = time.perf_counter()
+        messages = self._messages(question, context, repo_summary)
+        t_prompt = time.perf_counter() - t_prompt_start
+
+        t_llm_start = time.perf_counter()
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                max_tokens=512,
+                temperature=0.2,
+            )
+            content = response.choices[0].message.content
+            answer = str(content).strip() if content else ""
+        except Exception as e:
+            logger.error(f"Groq API generation failed: {e}")
+            answer = "Error generating response: Groq API is currently unavailable or returned an error. Please try again later."
+            
+        t_llm = time.perf_counter() - t_llm_start
+        t_total = time.perf_counter() - t_start
+        
+        logger.info(
+            f"RAG Metrics -> Total: {t_total:.2f}s | "
+            f"Embed: {metrics['embedding_time']:.2f}s | "
+            f"Search: {metrics['retrieval_time']:.2f}s | "
+            f"Prompt: {t_prompt:.3f}s | "
+            f"LLM: {t_llm:.2f}s"
         )
-        content = response.choices[0].message.content
-        answer = str(content).strip() if content else ""
-        logger.info(f"Groq RAG completed in {time.perf_counter()-t0:.2f}s")
+        
         return {"answer": answer, "citations": citations}
 
     def stream_question(self, question: str, repo_summary: dict | None = None) -> Generator[str, None, None]:
@@ -135,7 +159,7 @@ class RAGChain:
         Yields: 'data: {"token":"..."}\n\n' per token
                 'data: {"citations":[...],"done":true}\n\n' at end
         """
-        context, citations = self._retrieve(question, repo_summary)
+        context, citations, metrics = self._retrieve(question, repo_summary)
 
         if context is None:
             yield f'data: {json.dumps({"token": "No relevant code found. Please ingest a repository first."})}\n\n'
