@@ -7,6 +7,7 @@ from groq import Groq
 
 from app.ingestion.embedder import CodeEmbedder
 from app.retrieval.vector_store import VectorDBClient
+from app.rag.query_analyzer import QueryAnalyzer
 from app.config import GROQ_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -26,13 +27,29 @@ class RAGChain:
     def __init__(self):
         self.embedder = CodeEmbedder()
         self.db_client = VectorDBClient()
+        self.query_analyzer = QueryAnalyzer()
         self.groq_client = Groq(api_key=GROQ_API_KEY)
         logger.info(f"RAGChain ready. Using Groq model: {GROQ_MODEL}")
 
-    def _retrieve(self, question: str):
-        """Embed the question and retrieve top-2 relevant code chunks."""
+    def _retrieve(self, question: str, repo_summary: dict | None = None):
+        """Embed the question and retrieve top relevant code chunks."""
+        t_start = time.perf_counter()
+        
+        # Intent Detection Phase
+        target_modules = None
+        if repo_summary:
+            main_modules = repo_summary.get("main_modules", [])
+            if main_modules:
+                target_modules = self.query_analyzer.detect_intent(question, main_modules)
+        
+        # Vector Generation Phase
         vector = self.embedder.generate_embedding(question)
-        results = self.db_client.search_similar(query_embedding=vector, top_k=2)
+        
+        # Database Retrieval Phase
+        results = self.db_client.search_similar(query_embedding=vector, top_k=2, target_modules=target_modules)
+        
+        t_retrieval = time.perf_counter() - t_start
+        logger.info(f"Retrieval Phase completed in {t_retrieval:.2f}s")
 
         if not results:
             return None, []
@@ -93,7 +110,7 @@ class RAGChain:
     def ask_question(self, question: str, repo_summary: dict | None = None) -> Dict[str, Any]:
         """Non-streaming: returns full answer + citations."""
         t0 = time.perf_counter()
-        context, citations = self._retrieve(question)
+        context, citations = self._retrieve(question, repo_summary)
 
         if context is None:
             return {
@@ -118,7 +135,7 @@ class RAGChain:
         Yields: 'data: {"token":"..."}\n\n' per token
                 'data: {"citations":[...],"done":true}\n\n' at end
         """
-        context, citations = self._retrieve(question)
+        context, citations = self._retrieve(question, repo_summary)
 
         if context is None:
             yield f'data: {json.dumps({"token": "No relevant code found. Please ingest a repository first."})}\n\n'

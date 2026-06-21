@@ -63,6 +63,19 @@ class VectorDBClient:
                     ),
                 )
                 logger.info(f"Successfully created collection: {self.collection_name}")
+                
+            # Always ensure the payload text index exists (idempotent operation)
+            self.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="file_path",
+                field_schema=models.TextIndexParams(
+                    type="text",
+                    tokenizer=models.TokenizerType.WORD,
+                    min_token_len=2,
+                    max_token_len=20,
+                    lowercase=True,
+                )
+            )
         except UnexpectedResponse as e:
             logger.error(f"Error checking or creating Qdrant collection: {e}")
             raise
@@ -119,20 +132,34 @@ class VectorDBClient:
             logger.error(f"Failed to upsert points into Qdrant: {e}")
             raise RuntimeError(f"Database insertion failed: {e}")
 
-    def search_similar(self, query_embedding: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_similar(self, query_embedding: List[float], top_k: int = 5, target_modules: List[str] = None) -> List[Dict[str, Any]]:
         """
         Searches the vector database for the codebase chunks most semantically similar 
         to the provided query embedding.
         
         :param query_embedding: The dense vector representing the user's search query.
         :param top_k: The number of highest-scoring results to return (default: 5).
+        :param target_modules: Optional list of modules to restrict the search scope (e.g. ["auth", "routes"]).
         :return: A list of dictionaries containing the similarity score and the chunk payload.
         """
         try:
+            query_filter = None
+            if target_modules:
+                # Build an OR-based Should filter where 'file_path' must match AT LEAST ONE target module
+                should_conditions = [
+                    models.FieldCondition(
+                        key="file_path",
+                        match=models.MatchText(text=module)
+                    ) for module in target_modules
+                ]
+                query_filter = models.Filter(should=should_conditions)
+                logger.info(f"Applying Qdrant query_filter for modules: {target_modules}")
+
             # Perform the Approximate Nearest Neighbor (ANN) search using the new query_points API
             search_results = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_embedding,
+                query_filter=query_filter,
                 limit=top_k,
                 with_payload=True  # We need the payload back to feed to the LLM
             )
