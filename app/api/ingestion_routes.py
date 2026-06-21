@@ -38,6 +38,8 @@ class IngestResponse(BaseModel):
     """
     message: str
     repo_id: str
+    total_files_found: int
+    files_ignored: int
     files_processed: int
     chunks_processed: int
 
@@ -70,6 +72,8 @@ def ingest_repository(request: IngestRequest, db: Session = Depends(get_db)) -> 
         fetched_data = github_fetcher.fetch_code_files(repo_url=url_str)
         files = fetched_data.get("code_files", [])
         metadata_files = fetched_data.get("metadata_files", [])
+        total_files_found = fetched_data.get("total_files_found", 0)
+        files_ignored = fetched_data.get("files_ignored", 0)
         
         logger.info(f"GitHub fetcher returned {len(files)} code files and {len(metadata_files)} metadata files.")
         
@@ -181,6 +185,8 @@ def ingest_repository(request: IngestRequest, db: Session = Depends(get_db)) -> 
         return IngestResponse(
             message="Repository indexed successfully",
             repo_id=repo_id,
+            total_files_found=total_files_found,
+            files_ignored=files_ignored,
             files_processed=len(files),
             chunks_processed=len(all_chunks)
         )

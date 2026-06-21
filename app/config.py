@@ -12,6 +12,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
 # --- GitHub ---
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+MAX_FILES_TO_INDEX = int(os.getenv("MAX_FILES_TO_INDEX", "200"))
 
 # --- Vector Database ---
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
