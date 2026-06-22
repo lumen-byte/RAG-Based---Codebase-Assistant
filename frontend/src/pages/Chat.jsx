@@ -5,8 +5,8 @@ import ReactMarkdown from 'react-markdown';
 
 export default function Chat() {
   const { user, logout } = useContext(AuthContext);
-  
-  // Repo Ingestion
+
+  // Repo  Ingestion
   const [repoUrl, setRepoUrl] = useState('');
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestStatus, setIngestStatus] = useState('');
@@ -49,7 +49,7 @@ export default function Chat() {
     }
   };
 
-  // Handle History Save
+  // Handle History
   const saveToHistory = (newMessages) => {
     if (newMessages.length === 0) return;
     setHistory(prev => {
@@ -119,7 +119,7 @@ export default function Chat() {
 
   return (
     <div className="flex h-screen bg-white dark:bg-black text-black dark:text-white font-sans transition-colors duration-200">
-      
+
       {/* Left Sidebar (Optional History Overlay or fixed) */}
       {showHistory && (
         <div className="w-64 border-r border-black dark:border-gray-800 bg-white dark:bg-black flex flex-col h-full absolute md:relative z-10 transition-colors duration-200">
@@ -134,8 +134,8 @@ export default function Chat() {
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
             {history.map(session => (
-              <button 
-                key={session.id} 
+              <button
+                key={session.id}
                 onClick={() => loadHistory(session.id)}
                 className={`w-full text-left p-2 text-sm truncate border transition-colors ${currentSessionId === session.id ? 'border-black dark:border-white bg-black dark:bg-white text-white dark:text-black' : 'border-transparent hover:border-black dark:hover:border-white'}`}
               >
@@ -148,7 +148,7 @@ export default function Chat() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        
+
         {/* Top Navigation Bar */}
         <header className="h-16 border-b border-black dark:border-gray-800 flex items-center justify-between px-4 shrink-0 transition-colors duration-200">
           {/* Left Corner: Repo Ingestion */}
@@ -159,22 +159,22 @@ export default function Chat() {
               </button>
             )}
             <form onSubmit={handleIngest} className="flex items-center">
-              <input 
-                type="text" 
-                placeholder="Repository URL" 
+              <input
+                type="text"
+                placeholder="Repository URL"
                 className="border border-black dark:border-gray-600 bg-transparent px-3 py-1 text-sm focus:outline-none focus:border-black dark:focus:border-white w-48 lg:w-64 transition-colors"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
                 disabled={isIngesting}
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="border border-black dark:border-gray-600 border-l-0 px-3 py-1 text-sm bg-white dark:bg-black hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-500"
                 disabled={isIngesting || !repoUrl}
               >
                 {isIngesting ? 'Ingesting...' : 'Ingest'}
               </button>
-              
+
               {/* Ingestion Status Indicators */}
               {isIngesting && (
                 <svg className="animate-spin h-4 w-4 text-black dark:text-white ml-2 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -197,8 +197,8 @@ export default function Chat() {
 
           {/* Right Corner: History Toggle & Profile */}
           <div className="flex items-center gap-4 text-sm">
-            <button 
-              onClick={() => setShowHistory(!showHistory)} 
+            <button
+              onClick={() => setShowHistory(!showHistory)}
               className="hidden md:block underline hover:no-underline"
             >
               History
@@ -270,8 +270,8 @@ export default function Chat() {
                 disabled={isChatLoading}
                 className="w-full border border-black dark:border-gray-600 border-r-0 py-3 pl-4 pr-12 focus:outline-none bg-transparent"
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={!input.trim() || isChatLoading}
                 className="border border-black dark:border-gray-600 px-6 py-3 font-bold hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-500 disabled:hover:bg-gray-100 dark:disabled:hover:bg-gray-800 disabled:hover:text-gray-400 dark:disabled:hover:text-gray-500"
               >
