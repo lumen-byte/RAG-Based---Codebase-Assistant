@@ -4,8 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
 from app.db.database import get_db
-from app.db.models import RepositorySummary
+from app.db.models import RepositorySummary, User
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,11 @@ router = APIRouter(
 
 
 @router.get("/summary/{repo_id}", status_code=200)
-def get_repository_summary(repo_id: UUID, db: Session = Depends(get_db)):
+def get_repository_summary(
+    repo_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Retrieves the high-level LLM-generated repository architecture summary 
     by its database UUID.

@@ -100,11 +100,12 @@ class CodeEmbedder:
                 return [item.embedding for item in response.data]
             
             elif self.provider == "gemini" and self.gemini_client:
+                from google.genai import types
                 # Generate embeddings in batch
                 response = self.gemini_client.models.embed_content(
-                    model="embedding-001",
+                    model="gemini-embedding-2",
                     contents=valid_texts,
-                    config={"output_dimensionality": 384},
+                    config=types.EmbedContentConfig(output_dimensionality=384),
                 )
                 return [emb.values for emb in response.embeddings]
                 

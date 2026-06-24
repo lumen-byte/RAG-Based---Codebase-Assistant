@@ -10,11 +10,23 @@ const apiClient = axios.create({
   },
 });
 
-// Request interceptor to inject JWT token
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+export let fetchToken = null;
+
+export const setTokenFetcher = (fetcher) => {
+  fetchToken = fetcher;
+};
+
+// Request interceptor to inject Clerk JWT token
+apiClient.interceptors.request.use(async (config) => {
+  if (fetchToken) {
+    try {
+      const token = await fetchToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (err) {
+      console.error("Failed to fetch Clerk token", err);
+    }
   }
   return config;
 });
@@ -24,31 +36,21 @@ export const api = {
     const response = await apiClient.get('/health');
     return response.data;
   },
-  
-  register: async (email, password) => {
-    const response = await apiClient.post('/auth/register', { email, password });
+
+  // Note: Register, Login, Refresh, and GoogleLogin are now handled entirely by Clerk on the frontend.
+  // We keep getMe to fetch the user profile from our DB if needed, though Clerk provides useUser().
+  getMe: async () => {
+    const response = await apiClient.get('/auth/me');
     return response.data;
   },
 
-  login: async (email, password) => {
-    const formData = new URLSearchParams();
-    formData.append('username', email);
-    formData.append('password', password);
-    const response = await apiClient.post('/auth/login', formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-    });
-    return response.data;
-  },
-  
-  googleLogin: async (credential) => {
-    const response = await apiClient.post('/auth/google', { credential });
-    return response.data;
-  },
-  
   ingestRepo: async (repoUrl) => {
     const response = await apiClient.post('/api/v1/ingestion/ingest', { repo_url: repoUrl });
+    return response.data;
+  },
+
+  checkIngestionStatus: async (repoUrl) => {
+    const response = await apiClient.get(`/api/v1/ingestion/status?repo_url=${encodeURIComponent(repoUrl)}`);
     return response.data;
   },
 
@@ -62,20 +64,33 @@ export const api = {
    * Calls onToken(token) for each word/chunk as it arrives.
    * Calls onDone(citations) when the stream ends.
    */
-  askQuestionStream: async (question, onToken, onDone, onError) => {
-    const token = localStorage.getItem('access_token');
+  askQuestionStream: async (question, repoUrl, ingestionProgress, onToken, onDone, onError) => {
+    let token = null;
+    if (fetchToken) {
+      token = await fetchToken();
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
 
     try {
+      const body = { question, repo_url: repoUrl || undefined };
+      if (ingestionProgress !== null && ingestionProgress !== undefined) {
+        body.ingestion_progress = ingestionProgress;
+      }
+
       const response = await fetch(
-        `${(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')}/api/v1/rag/ask/stream`,
-        { method: 'POST', headers, body: JSON.stringify({ question }) }
+        `${API_URL}/api/v1/rag/ask/stream`,
+        { method: 'POST', headers, body: JSON.stringify(body) }
       );
 
       if (!response.ok) {
+        if (response.status === 401) {
+          onError('Session expired. Please log in again.');
+          return;
+        }
         const err = await response.json().catch(() => ({ detail: 'Server error' }));
         onError(err.detail || 'Server returned an error.');
         return;

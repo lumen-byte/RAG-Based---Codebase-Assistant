@@ -7,9 +7,8 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- Authentication ---
-JWT_SECRET = os.getenv("JWT_SECRET")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5177")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173,http://127.0.0.1:5173")
 
 # --- GitHub ---
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")

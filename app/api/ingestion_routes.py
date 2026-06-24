@@ -1,20 +1,21 @@
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 # Import our custom RAG modules
 from app.config import EMBEDDING_BATCH_SIZE
+from app.auth.dependencies import get_current_user
 from app.ingestion.code_chunker import PythonCodeChunker
 from app.ingestion.embedder import CodeEmbedder
 from app.retrieval.vector_store import VectorDBClient
 from app.services.github_fetcher import GithubFetcher
 from app.services.repository_analyzer import RepositoryAnalyzer
-from app.db.database import get_db
-from app.db.models import RepositorySummary
+from app.db.database import get_db, SessionLocal
+from app.db.models import RepositorySummary, User
 
 # Configure a module-level logger
 logger = logging.getLogger(__name__)
@@ -25,182 +26,175 @@ router = APIRouter(
     tags=["Ingestion Pipeline"]
 )
 
+# Global dictionary to track ingestion status
+# Format: url -> {"status": "processing"|"completed"|"failed", "progress": 0-100, "error": None, "repo_id": None}
+ingestion_status_tracker: Dict[str, Dict[str, Any]] = {}
+
 class IngestRequest(BaseModel):
-    """
-    Pydantic schema representing the required JSON payload for ingestion.
-    """
     repo_url: HttpUrl
 
-
 class IngestResponse(BaseModel):
-    """
-    Pydantic schema representing the success response returned to the client.
-    """
     message: str
-    repo_id: str
-    total_files_found: int
-    files_ignored: int
-    files_processed: int
-    chunks_processed: int
+    status: str
+
+class StatusResponse(BaseModel):
+    status: str
+    progress: int
+    error: Optional[str] = None
+    repo_id: Optional[str] = None
 
 
-@router.post("/ingest", response_model=IngestResponse, status_code=200)
-def ingest_repository(request: IngestRequest, db: Session = Depends(get_db)) -> IngestResponse:
-    """
-    Ingests a public GitHub repository into the vector database.
+def _run_ingestion_task(url_str: str):
+    """Background task to process repository ingestion without blocking the HTTP response."""
+    ingestion_status_tracker[url_str] = {"status": "processing", "progress": 0, "error": None, "repo_id": None}
     
-    This is a synchronous pipeline endpoint that orchestrates:
-    1. Fetching raw files from GitHub.
-    2. Semantically chunking the code into classes and functions.
-    3. Generating vector embeddings for every chunk.
-    4. Upserting the metadata and vectors into the Qdrant database.
-    """
-    # HttpUrl objects return a specialized URL object, we cast it back to string.
-    url_str = str(request.repo_url)
-    logger.info(f"Starting ingestion process for repository: {url_str}")
-    
+    # Create an independent DB session for this background thread
+    db = SessionLocal()
     try:
-        # Initialize our RAG pipeline services
         github_fetcher = GithubFetcher()
         code_chunker = PythonCodeChunker()
         embedder = CodeEmbedder()
         vector_db = VectorDBClient()
         analyzer = RepositoryAnalyzer()
         
-        # Step 1: Fetch raw files from the GitHub repository
-        logger.info("Starting GitHub fetch...")
+        # 1. Fetch
+        logger.info(f"Starting GitHub fetch for {url_str}...")
         fetched_data = github_fetcher.fetch_code_files(repo_url=url_str)
         files = fetched_data.get("code_files", [])
         metadata_files = fetched_data.get("metadata_files", [])
-        total_files_found = fetched_data.get("total_files_found", 0)
-        files_ignored = fetched_data.get("files_ignored", 0)
-        
-        logger.info(f"GitHub fetcher returned {len(files)} code files and {len(metadata_files)} metadata files.")
         
         if not files:
-            raise HTTPException(status_code=400, detail="No supported code files found in the given repository. Ensure the repo is public and contains .py, .js, .ts, or other supported code files.")
+            raise ValueError("No supported code files found in the given repository.")
             
-        # Step 1.5: Analyze repository intelligence
-        logger.info("Analyzing repository intelligence from metadata files...")
+        ingestion_status_tracker[url_str]["progress"] = 5
+        
+        # 2. Analyze & Save
+        logger.info("Analyzing repository metadata...")
         summary_json = analyzer.analyze(metadata_files)
         
-        # Upsert summary in database
         existing_summary = db.query(RepositorySummary).filter_by(repo_url=url_str).first()
         if existing_summary:
             existing_summary.summary_json = summary_json
             db.commit()
             repo_id = str(existing_summary.id)
-            logger.info(f"Updated existing repository summary: {repo_id}")
         else:
             new_summary = RepositorySummary(repo_url=url_str, summary_json=summary_json)
             db.add(new_summary)
             db.commit()
             db.refresh(new_summary)
             repo_id = str(new_summary.id)
-            logger.info(f"Created new repository summary: {repo_id}")
-        
-        # Step 2: Parse and chunk the code files
-        logger.info("Starting code chunking...")
-        all_chunks: List[Dict[str, Any]] = []
-        py_files_found = [f['path'] for f in files if f['path'].endswith('.py')]
-        logger.info(f"Python files available for chunking: {py_files_found}")
-        
-        for file_obj in files:
-            file_path = file_obj.get("path", "unknown")
-            content = file_obj.get("content", "")
             
-            # Since our specific chunker is currently optimized for Python, 
-            # we filter for `.py` files. You can expand this logic later for multi-language support.
+        ingestion_status_tracker[url_str]["repo_id"] = repo_id
+        ingestion_status_tracker[url_str]["progress"] = 15
+        
+        # 3. Chunk
+        logger.info("Chunking code files...")
+        all_chunks: List[Dict[str, Any]] = []
+        for file_obj in files:
+            file_path = file_obj.get("path", "")
+            content = file_obj.get("content", "")
             if file_path.endswith(".py"):
-                logger.info(f"Chunking file: {file_path}")
                 chunks = code_chunker.chunk_code(source_code=content, file_path=file_path)
-                logger.info(f"  -> Extracted {len(chunks)} chunks from {file_path}")
                 all_chunks.extend(chunks)
                 
         if not all_chunks:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No indexable Python chunks (classes/functions) found. Python files found: {py_files_found}. "
-                       f"Ensure the repo contains Python files with classes or functions defined at module level."
-            )
+            raise ValueError("No indexable Python chunks (classes/functions) found.")
             
-        logger.info(f"Successfully generated {len(all_chunks)} chunks.")
+        ingestion_status_tracker[url_str]["progress"] = 25
         
-        # Step 3: Generate embeddings for each chunk in batches
-        logger.info(f"Starting batched embedding generation for {len(all_chunks)} chunks (Batch Size: {EMBEDDING_BATCH_SIZE})...")
+        # 4. Embed in Batches
+        logger.info(f"Starting batched embeddings for {len(all_chunks)} chunks...")
         embeddings = []
-        
-        start_time = time.time()
-        
-        # We need a list to keep track of successfully embedded chunks (since some batches may permanently fail)
         successful_chunks = []
+        total_batches = (len(all_chunks) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
         
         for i in range(0, len(all_chunks), EMBEDDING_BATCH_SIZE):
             batch = all_chunks[i:i + EMBEDDING_BATCH_SIZE]
             batch_texts = [chunk["content"] for chunk in batch]
             
-            batch_start_time = time.time()
-            
-            # Retry logic for the batch (up to 3 tries)
-            retries = 3
             success = False
-            for attempt in range(retries):
+            # Exponential backoff for API limits (especially Gemini 15 RPM)
+            for attempt in range(3):
                 try:
                     batch_embeddings = embedder.generate_embeddings_batch(batch_texts)
-                    
-                    # Ensure the API returned the expected number of embeddings
-                    if len(batch_embeddings) != len(batch):
-                        raise ValueError(f"API returned {len(batch_embeddings)} embeddings but expected {len(batch)}")
-                        
                     embeddings.extend(batch_embeddings)
                     successful_chunks.extend(batch)
                     success = True
                     break
                 except Exception as e:
-                    logger.warning(f"Batch {i//EMBEDDING_BATCH_SIZE + 1} failed on attempt {attempt + 1}: {e}")
-                    time.sleep(1) # Backoff before retry
+                    logger.warning(f"Batch failed on attempt {attempt + 1}: {e}")
+                    # e.g., 2^0 = 1s, 2^1 = 2s, 2^2 = 4s.
+                    # Or for severe limits we could sleep much longer, but we keep it simple here.
+                    time.sleep((2 ** attempt) * 2) 
                     
-            if success:
-                batch_duration = time.time() - batch_start_time
-                logger.info(f"Successfully processed batch {i//EMBEDDING_BATCH_SIZE + 1} ({len(batch)} chunks) in {batch_duration:.2f}s")
-            else:
-                logger.error(f"Batch {i//EMBEDDING_BATCH_SIZE + 1} permanently failed after {retries} retries. Skipping {len(batch)} chunks (indexes {i} to {i+len(batch)-1}).")
+            if not success:
+                logger.error("Batch permanently failed due to repeated errors.")
+                
+            # Update progress between 25% and 90%
+            current_batch_index = (i // EMBEDDING_BATCH_SIZE) + 1
+            progress_fraction = current_batch_index / total_batches
+            current_progress = 25 + int(progress_fraction * 65)
+            ingestion_status_tracker[url_str]["progress"] = current_progress
 
-        total_embedding_time = time.time() - start_time
-        
         if not embeddings:
-            raise HTTPException(status_code=500, detail="Failed to generate embeddings for all chunks.")
+            raise RuntimeError("Failed to generate embeddings for any chunks.")
             
-        logger.info(f"Completed embedding generation: {len(embeddings)} total embeddings generated in {total_embedding_time:.2f}s")
-            
-        # Step 4: Store chunks and their embeddings in Qdrant
-        logger.info("Starting Qdrant insertion...")
-        vector_db.store_chunks(chunks=successful_chunks, embeddings=embeddings)
+        # 5. Insert to Qdrant
+        logger.info("Storing chunks in VectorDB...")
+        vector_db.store_chunks(chunks=successful_chunks, embeddings=embeddings, repo_url=url_str)
         
-        logger.info("Successfully inserted chunks into Qdrant.")
+        ingestion_status_tracker[url_str]["progress"] = 100
+        ingestion_status_tracker[url_str]["status"] = "completed"
+        logger.info("Background ingestion task completed successfully.")
         
-        logger.info("Ingestion pipeline completed successfully.")
-        
-        # Return cleanly formatted Pydantic response
-        return IngestResponse(
-            message="Repository indexed successfully",
-            repo_id=repo_id,
-            total_files_found=total_files_found,
-            files_ignored=files_ignored,
-            files_processed=len(files),
-            chunks_processed=len(all_chunks)
-        )
-        
-    except HTTPException:
-        # MUST be first: re-raise FastAPI HTTP exceptions with their original status code intact
-        raise
-
-    except ValueError as ve:
-        # Predictable input/configuration errors (e.g. bad GitHub URL, missing API key)
-        logger.error(f"Validation error during ingestion: {ve}")
-        raise HTTPException(status_code=400, detail=str(ve))
-
     except Exception as e:
-        # Catch-all for unexpected systemic failures (network, parsing, etc.)
-        logger.exception("Unexpected error during ingestion")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Background ingestion failed")
+        ingestion_status_tracker[url_str]["status"] = "failed"
+        ingestion_status_tracker[url_str]["error"] = str(e)
+    finally:
+        db.close()
+
+
+@router.post("/ingest", response_model=IngestResponse, status_code=202)
+def ingest_repository(
+    request: IngestRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+) -> IngestResponse:
+    """
+    Kicks off an asynchronous ingestion pipeline for a repository.
+    Returns 202 Accepted.
+    """
+    url_str = str(request.repo_url).rstrip("/")
+    
+    # Prevent duplicate concurrent ingestions
+    status_info = ingestion_status_tracker.get(url_str)
+    if status_info and status_info["status"] == "processing":
+        return IngestResponse(message="Ingestion already in progress.", status="processing")
+        
+    ingestion_status_tracker[url_str] = {"status": "processing", "progress": 0, "error": None, "repo_id": None}
+    background_tasks.add_task(_run_ingestion_task, url_str)
+    
+    return IngestResponse(message="Ingestion started.", status="processing")
+
+
+@router.get("/status", response_model=StatusResponse)
+def get_ingestion_status(
+    repo_url: HttpUrl,
+    current_user: User = Depends(get_current_user)
+) -> StatusResponse:
+    """
+    Endpoint to poll for the real-time progress of an ingestion task.
+    """
+    url_str = str(repo_url).rstrip("/")
+    status_info = ingestion_status_tracker.get(url_str)
+    
+    if not status_info:
+        return StatusResponse(status="not_found", progress=0)
+        
+    return StatusResponse(
+        status=status_info["status"],
+        progress=status_info["progress"],
+        error=status_info["error"],
+        repo_id=status_info.get("repo_id")
+    )

@@ -29,10 +29,12 @@ class User(Base):
         index=True,
     )
 
-    # Secure password storage (hashed)
-    hashed_password: Mapped[str] = mapped_column(
+    # Clerk User ID
+    clerk_id: Mapped[str] = mapped_column(
         String(255),
+        unique=True,
         nullable=False,
+        index=True,
     )
 
     # Auto-populated created timestamp using PostgreSQL's server time

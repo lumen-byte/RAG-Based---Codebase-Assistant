@@ -1,40 +1,51 @@
-import { useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, AuthContext } from './context/AuthContext';
+import { SignedIn, SignedOut, RedirectToSignIn, useAuth } from '@clerk/clerk-react';
+import { useEffect } from 'react';
 
 import Landing from './pages/Landing';
 import Auth from './pages/Auth';
 import Chat from './pages/Chat';
+import { setTokenFetcher } from './services/api';
 
 const ProtectedRoute = ({ children }) => {
-  const { token } = useContext(AuthContext);
-  if (!token) return <Navigate to="/auth" replace />;
-  return children;
+  return (
+    <>
+      <SignedIn>{children}</SignedIn>
+      <SignedOut><RedirectToSignIn /></SignedOut>
+    </>
+  );
 };
 
 const PublicRoute = ({ children }) => {
-  const { token } = useContext(AuthContext);
-  if (token) return <Navigate to="/chat" replace />;
-  return children;
+  return (
+    <>
+      <SignedIn><Navigate to="/chat" replace /></SignedIn>
+      <SignedOut>{children}</SignedOut>
+    </>
+  );
 };
 
-function AppRoutes() {
+const AppContent = () => {
+  const { getToken } = useAuth();
+  
+  useEffect(() => {
+    setTokenFetcher(() => getToken());
+  }, [getToken]);
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
-        <Route path="/auth" element={<PublicRoute><Auth /></PublicRoute>} />
-        <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<PublicRoute><Landing /></PublicRoute>} />
+      <Route path="/auth/*" element={<PublicRoute><Auth /></PublicRoute>} />
+      <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
-}
+};
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }

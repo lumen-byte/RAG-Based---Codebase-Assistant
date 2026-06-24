@@ -28,16 +28,19 @@ class RAGChain:
         self.groq_client = Groq(api_key=GROQ_API_KEY)
         logger.info(f"RAGChain ready. Using Groq model: {GROQ_MODEL}")
 
-    def _retrieve(self, question: str, repo_summary: dict | None = None):
+    def _retrieve(self, question: str, repo_url: str | None = None, repo_summary: dict | None = None) -> tuple[str | None, list, dict, str]:
         """Embed the question and retrieve top relevant code chunks."""
         t_start = time.perf_counter()
         
         # Intent Detection Phase
         target_modules = None
+        intent = "unknown"
         if repo_summary:
             main_modules = repo_summary.get("main_modules", [])
             if main_modules:
-                target_modules = self.query_analyzer.detect_intent(question, main_modules)
+                analysis = self.query_analyzer.detect_intent(question, main_modules)
+                target_modules = analysis.get("selected_modules", [])
+                intent = analysis.get("intent", "unknown")
         
         # Vector Generation Phase
         t_embed_start = time.perf_counter()
@@ -46,7 +49,7 @@ class RAGChain:
         
         # Database Retrieval Phase
         t_db_start = time.perf_counter()
-        results = self.db_client.search_similar(query_embedding=vector, top_k=2, target_modules=target_modules)
+        results = self.db_client.search_similar(query_embedding=vector, top_k=2, target_modules=target_modules, repo_url=repo_url)
         t_db = time.perf_counter() - t_db_start
         
         metrics = {
@@ -55,7 +58,7 @@ class RAGChain:
         }
 
         if not results:
-            return None, [], metrics
+            return None, [], metrics, intent
 
         context, citations = "", []
         for i, r in enumerate(results):
@@ -73,16 +76,50 @@ class RAGChain:
             context += snippet
             citations.append({"file_path": file_path, "start_line": s, "end_line": e})
 
-        return context, citations, metrics
+        return context, citations, metrics, intent
 
-    def _messages(self, question: str, context: str, repo_summary: dict | None = None) -> Any:
+    def _messages(self, question: str, context: str, repo_summary: dict | None = None, intent: str = "unknown") -> Any:
         """Build the chat messages list for the Groq API."""
         
         system_content = (
-            "You are an expert code analyst. You are given source code snippets "
-            "from a real project. Explain clearly what the code does, mentioning "
-            "specific class names, function names, and libraries. Be concise and accurate."
+            "You are an expert codebase analysis assistant.\n\n"
+            "Rules:\n"
+            "* Answer ONLY using retrieved repository context.\n"
+            "* Never invent code that does not exist.\n"
+            "* If the question is unrelated to the repository, respond:\n"
+            "  'This question is outside the scope of the indexed repository.'\n"
+            "* Always use Markdown.\n"
+            "* Use headings and subheadings.\n"
+            "* Use bullet points where appropriate.\n"
+            "* Keep answers concise and developer-focused.\n"
+            "* Avoid large paragraphs.\n"
+            "* Always end with:\n"
+            "## Sources"
         )
+        
+        if intent == "code_explanation":
+            system_content += (
+                "\n\nFor code explanations, explain:\n"
+                "* Purpose\n"
+                "* Location\n"
+                "* Key Logic\n"
+                "* Dependencies"
+            )
+        elif intent == "architecture":
+            system_content += (
+                "\n\nFor architecture questions, explain:\n"
+                "* Components\n"
+                "* Data Flow\n"
+                "* Design Decisions"
+            )
+        elif intent == "interview":
+            system_content += (
+                "\n\nFor interview questions, use:\n"
+                "# Question\n"
+                "## Why Interviewers Ask This\n"
+                "## Ideal Answer\n"
+                "## Follow-up Questions"
+            )
         
         if repo_summary:
             architecture = repo_summary.get("architecture_summary", "Unknown architecture")
@@ -110,11 +147,11 @@ class RAGChain:
             },
         ]
 
-    def ask_question(self, question: str, repo_summary: dict | None = None) -> Dict[str, Any]:
+    def ask_question(self, question: str, repo_url: str | None = None, repo_summary: dict | None = None) -> Dict[str, Any]:
         """Non-streaming: returns full answer + citations with accurate metrics."""
         t_start = time.perf_counter()
         
-        context, citations, metrics = self._retrieve(question, repo_summary)
+        context, citations, metrics, intent = self._retrieve(question, repo_url, repo_summary)
 
         if context is None:
             return {
@@ -123,7 +160,7 @@ class RAGChain:
             }
 
         t_prompt_start = time.perf_counter()
-        messages = self._messages(question, context, repo_summary)
+        messages = self._messages(question, context, repo_summary, intent)
         t_prompt = time.perf_counter() - t_prompt_start
 
         t_llm_start = time.perf_counter()
@@ -153,13 +190,13 @@ class RAGChain:
         
         return {"answer": answer, "citations": citations}
 
-    def stream_question(self, question: str, repo_summary: dict | None = None) -> Generator[str, None, None]:
+    def stream_question(self, question: str, repo_url: str | None = None, repo_summary: dict | None = None) -> Generator[str, None, None]:
         """
         SSE streaming via Groq. First token arrives in ~0.3-0.5s.
         Yields: 'data: {"token":"..."}\n\n' per token
                 'data: {"citations":[...],"done":true}\n\n' at end
         """
-        context, citations, metrics = self._retrieve(question, repo_summary)
+        context, citations, metrics, intent = self._retrieve(question, repo_url, repo_summary)
 
         if context is None:
             yield f'data: {json.dumps({"token": "No relevant code found. Please ingest a repository first."})}\n\n'
@@ -169,7 +206,7 @@ class RAGChain:
         try:
             stream = self.groq_client.chat.completions.create(
                 model=GROQ_MODEL,
-                messages=self._messages(question, context, repo_summary),
+                messages=self._messages(question, context, repo_summary, intent),
                 max_tokens=512,
                 temperature=0.2,
                 stream=True,

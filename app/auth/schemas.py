@@ -20,12 +20,31 @@ class UserResponse(UserBase):
 
 
 class Token(BaseModel):
+    """Legacy token schema — kept for backward compatibility."""
     access_token: str
     token_type: str
 
 
+class AuthResponse(BaseModel):
+    """Industry-standard auth response with both access and refresh tokens."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int  # seconds until access token expires
+
+
+class RefreshTokenRequest(BaseModel):
+    """Request schema for the token refresh endpoint."""
+    refresh_token: str
+
+
 class TokenData(BaseModel):
     email: str | None = None
+
+
+class MessageResponse(BaseModel):
+    """Generic status message response."""
+    message: str
 
 
 class GoogleAuthRequest(BaseModel):

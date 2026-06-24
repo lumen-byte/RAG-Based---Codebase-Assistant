@@ -10,9 +10,10 @@ sqlalchemy==2.0.50
 psycopg2-binary==2.9.12
 
 # --- Authentication ---
-python-jose==3.5.0
-passlib==1.7.4
-bcrypt==3.2.2
+clerk-backend-api
+
+# --- Rate Limiting ---
+slowapi==0.1.9
 
 # --- Third-party APIs ---
 groq==1.4.0
@@ -36,3 +37,6 @@ qdrant-client==1.18.0
 
 # --- HTTP Client (for Ollama) ---
 httpx==0.28.1
+
+# --- File Watching (for uvicorn --reload) ---
+watchfiles==1.0.5

@@ -1,20 +1,23 @@
 import logging
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Configure logging before any imports that use loggers
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
 logger = logging.getLogger(__name__)
 
-from app.auth.routes import router as auth_router
+# Auth router removed (Clerk handles it)
+import uvicorn
+# Triggering reload to clear threadpool deadlocks
 from app.api.ingestion_routes import router as ingestion_router
 from app.api.rag_routes import router as rag_router
 from app.api.repository_routes import router as repository_router
-
-# Setup module-level logger for main.py
-logger = logging.getLogger(__name__)
 
 from app.db.database import Base, engine
 from app.db import models
@@ -23,12 +26,19 @@ from app.config import FRONTEND_URL, QDRANT_URL, QDRANT_HOST, QDRANT_PORT, LLM_P
 # Re-create all tables defined in models.py if they don't exist
 Base.metadata.create_all(bind=engine)
 
+# --- Rate Limiter ---
+limiter = Limiter(key_func=get_remote_address)
+
 # Initialize FastAPI application instance
 app = FastAPI(
     title="RAG-Based Codebase Assistant",
     description="Ask questions about your codebase, powered by local and cloud LLMs.",
     version="1.0.0",
 )
+
+# Attach rate limiter to the app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # Configure CORS so your React frontend can communicate with this backend
 app.add_middleware(
@@ -40,16 +50,29 @@ app.add_middleware(
 )
 
 # Register API routers from different feature modules
-app.include_router(auth_router)
 app.include_router(ingestion_router)
 app.include_router(rag_router)
 app.include_router(repository_router)
 
 
+@app.on_event("startup")
+def startup_log():
+    """Log configuration status on startup for operational visibility."""
+    logger.info("=" * 60)
+    logger.info("  RAG-Based Codebase Assistant — Starting Up")
+    logger.info("=" * 60)
+    logger.info(f"  CORS Origins: {FRONTEND_URL}")
+    logger.info(f"  LLM Provider: {LLM_PROVIDER}")
+    logger.info(f"  Qdrant URL: {QDRANT_URL or f'http://{QDRANT_HOST}:{QDRANT_PORT}'}")
+    logger.info("=" * 60)
+
+
 @app.get("/")
-def root():  # Trigger reload to pick up new GROQ_API_KEY env variable
+def root():
     return {
-        "message": "AI Codebase Assistant API"
+        "message": "AI Codebase Assistant API",
+        "version": "1.0.0",
+        "docs": "/docs",
     }
 
 
