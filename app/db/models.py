@@ -29,11 +29,17 @@ class User(Base):
         index=True,
     )
 
-    # Clerk User ID
-    clerk_id: Mapped[str] = mapped_column(
+    # Hashed password (nullable for OAuth users)
+    hashed_password: Mapped[str] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    # Google ID for OAuth
+    google_id: Mapped[str] = mapped_column(
         String(255),
         unique=True,
-        nullable=False,
+        nullable=True,
         index=True,
     )
 

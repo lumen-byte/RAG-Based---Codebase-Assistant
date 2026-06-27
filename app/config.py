@@ -33,6 +33,6 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
 
 # --- Embeddings (Local vs OpenAI vs Gemini) ---
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "local").strip()  # 'local', 'openai', or 'gemini'
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "100"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()

@@ -141,102 +141,23 @@ class RAGChain:
         """Build the chat messages list for the Groq API."""
         
         system_content = (
-            "You are an expert, repository-aware AI Codebase Assistant (similar to GitHub Copilot Chat, Cursor, or Sourcegraph Cody).\n\n"
-            "CRITICAL RULES:\n"
-            "1. IDENTIFY BEFORE ANSWERING: Always start by silently identifying the Tech Stack, Framework, Entry Point, and Key Modules based on the repository context.\n"
-            "2. UNCERTAIN LANGUAGE FORBIDDEN: Never use phrases like 'likely', 'probably', 'may be', 'possibly', 'appears to', or 'seems to' unless RETRIEVAL CONFIDENCE is 'Low'. If confidence is high and evidence exists, answer authoritatively.\n"
-            "3. EXPLAIN WHY: Do not just list technologies. Explain WHY they exist (e.g. 'FastAPI: Purpose: async backend. Why: type safety, speed').\n"
-            "4. Answer ONLY using the retrieved repository context. Never hallucinate code.\n"
-            "5. Never generate generic explanations if repository information exists. Prefer explaining the actual implementation over theory.\n"
-            "6. Mention actual files, modules, classes, functions, and technologies used in this repository.\n"
-            "7. Never say 'AI model' (you are powered by Gemini or Groq depending on the deployment).\n"
-            "8. Never say 'database' generically if PostgreSQL or Qdrant is known to be used.\n"
-            "9. Always use professional developer Markdown formatting. Use nested bullets, callout boxes (like > [!NOTE]), horizontal rules, and numbered steps.\n"
-            "10. When returning code, use fenced Markdown with the language specified. Immediately follow the code block with a breakdown of: Purpose, Inputs, Outputs, Execution Flow, Dependencies, and Time Complexity (if applicable).\n"
-            "11. If RETRIEVAL CONFIDENCE is 'Low', explicitly state: 'Repository evidence is insufficient.'\n"
-            "\n"
-            "CITATION RULES:\n"
-            "Always end your answer with a Citations section, sorted by relevance and deduplicated:\n"
-            "## Sources\n"
-            "📄 [file_path]\n"
-            "Function: [Name]\n"
-            "Lines: [start_line]–[end_line]\n"
-            "Why this file is relevant: [Reason]\n\n"
+            "You are an expert AI codebase assistant, built to explain code cleanly to senior engineers.\n\n"
+            "Your highest priority is to output HIGHLY READABLE, INTERACTIVE, AND DYNAMIC MARKDOWN.\n"
+            "The user is viewing this in a modern chat interface. If you output boring, robotic walls of text, you fail.\n\n"
+            "=== CRITICAL FORMATTING RULES ===\n"
+            "1. NUMBERED SEQUENCES: When explaining multiple concepts, files, or steps, you MUST use a numbered sequence. Format it EXACTLY like this:\n"
+            "   1. **Dynamic Concept Name:** Then explain the concept.\n"
+            "   2. **Another Concept:** Then explain it.\n\n"
+            "2. AGGRESSIVE BOLDING: You MUST generously use **bold text** to highlight important concepts, function names, and file names. Make the text highly scannable.\n"
+            "3. EXPLICIT SPACING: You MUST add a blank line (double newline `\n\n`) after EVERY paragraph, EVERY numbered item, and EVERY complete statement. The text must be heavily spaced out to prevent clustering.\n"
+            "4. DYNAMIC HEADINGS: Never use generic headings like 'Overview'. If you use an `###` heading, it MUST be highly specific to the user's question (e.g., `### Database Architecture`).\n"
+            "5. NO CITATIONS AT THE END: NEVER include a 'Sources', 'References', or 'Files Used' section. The UI handles citations natively.\n"
+            "6. MANDATORY CODE BLOCKS: If the user asks for 'code snippets', 'code', or if explaining code is necessary, you MUST extract and show the actual source code using full Markdown fenced code blocks (e.g., ```python\n<code here>\n```). Do not just describe the code in plain text.\n"
+            "7. FINAL SUMMARY: You MUST always conclude every response with a comprehensive, detailed summary (at least 3-4 sentences or a bulleted list). The summary should thoroughly recap all key takeaways, architectural decisions, or main code functionality discussed to make the answer feel complete and substantial. You can use a `### Summary` heading.\n"
+            "8. ANSWER DEPTH: By default, provide highly detailed, comprehensive, and in-depth answers that fully explore the codebase. Go deep into the architecture, edge cases, and logic. HOWEVER, if the user explicitly asks for a 'short', 'small', or 'brief' answer in their query, you MUST provide a concise, minimal response.\n\n"
+            "Remember: Readability is your #1 goal. Use numbered sequences, bold text, and aggressive double-spacing to structure your answer beautifully, just like a premium AI assistant."
         )
-        
-        # Inject structural templates based on intent
-        if intent == "repository_overview":
-            system_content += (
-                "You are providing a Repository Overview. Structure your response EXACTLY as follows:\n"
-                "# Repository Overview\n"
-                "## Purpose\n"
-                "## Tech Stack\n"
-                "## Architecture\n"
-                "## Execution Flow\n"
-                "## Important Modules\n"
-                "## Design Decisions\n"
-                "## Scalability\n"
-                "## Performance Optimizations\n"
-            )
-        elif intent == "architecture":
-            system_content += (
-                "You are explaining Architecture. Structure your response EXACTLY as follows:\n"
-                "# Architecture\n"
-                "## Visual Flow\n"
-                "(Create a text-based ASCII flow diagram representing the architecture flow here)\n"
-                "## Components\n"
-                "## Execution Flow\n"
-                "## Technologies Used\n"
-                "## Design Decisions\n"
-                "## Advantages\n"
-            )
-        elif intent == "code_explanation":
-            system_content += (
-                "You are explaining Code. Structure your response EXACTLY as follows:\n"
-                "# Code Explanation\n"
-                "## File\n"
-                "## Function/Class\n"
-                "## Purpose\n"
-                "## Logic\n"
-                "## Dependencies\n"
-                "## Complexity\n"
-            )
-        elif intent == "interview_questions":
-            system_content += (
-                "You are providing Interview Questions. Structure your response EXACTLY as follows:\n"
-                "# Interview Question\n"
-                "## Why Interviewers Ask It\n"
-                "## Ideal Answer\n"
-                "## Follow-up Questions\n"
-                "## Relevant Files\n"
-            )
-        elif intent == "bug_analysis":
-            system_content += (
-                "You are analyzing a Bug. Structure your response EXACTLY as follows:\n"
-                "# Bug Analysis\n"
-                "## Problem\n"
-                "## Root Cause\n"
-                "## Relevant Files\n"
-                "## Suggested Fix\n"
-            )
-        elif intent == "review_repository":
-            system_content += (
-                "You are providing a Developer Review. Structure your response EXACTLY as follows:\n"
-                "# Developer Review\n"
-                "## Architecture\n"
-                "## Strengths\n"
-                "## Weaknesses\n"
-                "## Scalability\n"
-                "## Security\n"
-                "## Performance\n"
-                "## Code Quality\n"
-                "## Maintainability\n"
-                "## Suggested Improvements\n"
-                "## Production Readiness Score\n"
-            )
-        else:
-            system_content += "Structure your response with clear Markdown headings (e.g. # Explanation, ## Details).\n"
-        
+                
         if repo_summary:
             architecture = repo_summary.get("architecture_summary", "Unknown architecture")
             project_type = repo_summary.get("project_type", "Unknown type")
@@ -264,7 +185,7 @@ class RAGChain:
             },
             {
                 "role": "user",
-                "content": f"RETRIEVED CODE CHUNKS:\n{context}\n\nUSER QUESTION:\n{question}",
+                "content": f"RETRIEVED CODE CHUNKS:\n{context}\n\nUSER QUESTION:\n{question}\n\n[MANDATORY FORMATTING INSTRUCTION: If your answer contains multiple parts, format it as a numbered list. You MUST put a full blank line (\\n\\n) between EVERY numbered item and EVERY paragraph. If the user asks for code snippets, you MUST provide full Markdown fenced code blocks (```language ... ```) containing the actual code. Use **bold** for key terms.]",
             },
         ]
 
@@ -289,7 +210,7 @@ class RAGChain:
             response = self.groq_client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=messages,
-                max_tokens=512,
+                max_tokens=2048,
                 temperature=0.2,
             )
             content = response.choices[0].message.content
@@ -328,7 +249,7 @@ class RAGChain:
             stream = self.groq_client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=self._messages(question, context, repo_summary, intent),
-                max_tokens=512,
+                max_tokens=2048,
                 temperature=0.2,
                 stream=True,
             )

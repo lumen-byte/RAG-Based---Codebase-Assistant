@@ -18,6 +18,7 @@ import uvicorn
 from app.api.ingestion_routes import router as ingestion_router
 from app.api.rag_routes import router as rag_router
 from app.api.repository_routes import router as repository_router
+from app.api.auth_routes import router as auth_router
 
 from app.db.database import Base, engine
 from app.db import models
@@ -53,6 +54,7 @@ app.add_middleware(
 app.include_router(ingestion_router)
 app.include_router(rag_router)
 app.include_router(repository_router)
+app.include_router(auth_router)
 
 
 @app.on_event("startup")
