@@ -395,7 +395,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main Content Are */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-gray-50 dark:bg-[#0a0a0a]">
 
         {/* Top Navigation Bar */}
