@@ -395,7 +395,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Main Conten Are */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-gray-50 dark:bg-[#0a0a0a]">
 
         {/* Top Navigation Bar */}
@@ -436,7 +436,7 @@ export default function Chat() {
               </button>
             </form>
 
-            {/* Cancel/Reset Buttons next to the form */}
+            {/* Cancel/Reset Buttons next t the form */}
             {isIngesting && (
               <button
                 type="button"
