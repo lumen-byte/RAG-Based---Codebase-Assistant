@@ -238,7 +238,18 @@ class RAGChain:
         Yields: 'data: {"token":"..."}\n\n' per token
                 'data: {"citations":[...],"done":true}\n\n' at end
         """
-        context, citations, metrics, intent = self._retrieve(question, repo_url, repo_summary)
+        try:
+            context, citations, metrics, intent = self._retrieve(question, repo_url, repo_summary)
+        except Exception as e:
+            logger.error(f"Retrieval error during streaming: {e}")
+            err_msg = str(e)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+                user_friendly_error = "Codexa is currently receiving too many requests. Please wait about 10 seconds and try again."
+            else:
+                user_friendly_error = "Something went wrong while analyzing the codebase. Please try asking again in a moment."
+            yield f'data: {json.dumps({"token": f"Error: {user_friendly_error}"})}\n\n'
+            yield f'data: {json.dumps({"citations": [], "done": True})}\n\n'
+            return
 
         if context is None:
             yield f'data: {json.dumps({"token": "No relevant code found. Please ingest a repository first."})}\n\n'
