@@ -1,14 +1,17 @@
 'use client';
 import { useRouter } from 'next/navigation';
 
+import CodexaLogo from '@/components/CodexaLogo';
+
 export default function Landing() {
   const router = useRouter();
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-black text-black dark:text-white p-4">
-      <div className="max-w-md w-full text-center space-y-8">
+      <div className="max-w-md w-full text-center space-y-6 flex flex-col items-center">
+        <CodexaLogo size="xl" className="animate-pulse" />
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          CodeLens AI
+          Codexa
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-400">
           Understand your codebase. Ask questions, get answers.

@@ -8,6 +8,8 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+import CodexaLogo from '@/components/CodexaLogo';
+
 export default function SignUpPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -54,9 +56,10 @@ export default function SignUpPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-black p-4">
       <div className="w-full max-w-md p-8 border border-gray-200 dark:border-gray-800 rounded-2xl bg-gray-50 dark:bg-[#111111] shadow-xl">
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 flex flex-col items-center">
+          <CodexaLogo size="lg" className="mb-4" />
           <h1 className="text-3xl font-bold text-black dark:text-white">Create an Account</h1>
-          <p className="text-gray-500 mt-2">Join CodeLens AI today</p>
+          <p className="text-gray-500 mt-2">Join Codexa today</p>
         </div>
 
         {error && (

@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import CodexaLogo from '@/components/CodexaLogo';
 
 interface Message {
   id?: number;
@@ -213,11 +214,13 @@ export default function Chat() {
     setHistory(prev => {
       const existing = prev.find(h => h.id === currentSessionId);
       let updated: ChatSession[];
+      const repoTitle = getRepoHeading();
       if (existing) {
-        updated = prev.map(h => h.id === currentSessionId ? { ...h, messages: newMessages, repoUrl: activeRepoUrl } : h);
+        updated = prev.map(h => h.id === currentSessionId ? { ...h, messages: newMessages, repoUrl: activeRepoUrl, title: repoTitle || h.title } : h);
       } else {
-        const title = newMessages.find(m => m.role === 'user')?.content.substring(0, 30) + '...';
-        updated = [{ id: currentSessionId, title: title || 'New Chat', messages: newMessages, repoUrl: activeRepoUrl }, ...prev];
+        const fallbackTitle = newMessages.find(m => m.role === 'user')?.content.substring(0, 30) + '...';
+        const title = repoTitle || fallbackTitle || 'New Chat';
+        updated = [{ id: currentSessionId, title: title, messages: newMessages, repoUrl: activeRepoUrl }, ...prev];
       }
       localStorage.setItem('minimal_chat_history', JSON.stringify(updated));
       return updated;
@@ -352,18 +355,24 @@ export default function Chat() {
       {/* Glassmorphic History Sidebar */}
       {showHistory && (
         <div className="w-72 border-r border-gray-200 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f0f]/90 backdrop-blur-xl text-black dark:text-white flex flex-col h-full absolute md:relative z-20 shadow-2xl transition-all duration-300 ease-in-out">
-          <div className="p-5 border-b border-gray-200 dark:border-gray-800/60 flex justify-between items-center">
-            <span className="font-semibold tracking-wide text-sm flex items-center gap-2">
-              <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Chat History
-            </span>
-            <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-black dark:hover:text-white transition-colors p-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+          <div className="p-5 border-b border-gray-200 dark:border-gray-800/60 flex flex-col gap-4">
+            <div className="flex items-center gap-2.5">
+              <CodexaLogo size="sm" />
+              <span className="font-bold tracking-tight text-lg">Codexa</span>
+            </div>
+            <div className="flex justify-between items-center w-full">
+              <span className="font-semibold tracking-wide text-xs text-gray-500 flex items-center gap-2">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Chat History
+              </span>
+              <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-black dark:hover:text-white transition-colors p-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="p-3">
             <button onClick={startNewChat} className="w-full text-left p-3 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all font-medium text-sm flex items-center gap-2">
@@ -403,15 +412,21 @@ export default function Chat() {
           {/* Left Corner: History Toggle & Repo Ingestion */}
           <div className="flex items-center gap-3 w-full max-w-2xl">
             {!showHistory && (
-              <button
-                onClick={() => setShowHistory(true)}
-                className="text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white transition-colors p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
-                title="Toggle History"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowHistory(true)}
+                  className="text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white transition-colors p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+                  title="Toggle History"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                  </svg>
+                </button>
+                <div className="hidden sm:flex items-center gap-2 mr-2">
+                  <CodexaLogo size="sm" />
+                  <span className="font-bold tracking-tight text-sm">Codexa</span>
+                </div>
+              </div>
             )}
             <form onSubmit={handleIngest} className="flex flex-1 items-center bg-gray-100 dark:bg-[#111111] rounded-xl border border-gray-200 dark:border-gray-800/60 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-500/50 transition-all duration-200">
               <div className="pl-4 text-gray-400">
@@ -587,10 +602,8 @@ export default function Chat() {
                     ) : (
                       <div className="flex w-full gap-4 md:gap-6">
                         {/* Assistant Avatar */}
-                        <div className="w-8 h-8 rounded-full bg-black dark:bg-white flex items-center justify-center shrink-0 mt-1 shadow-sm ring-1 ring-black/5 dark:ring-white/10">
-                          <svg className="w-4 h-4 text-white dark:text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
+                        <div className="w-8 h-8 flex items-center justify-center shrink-0 mt-1">
+                          <CodexaLogo size="sm" className="drop-shadow-[0_2px_5px_rgba(99,102,241,0.2)]" />
                         </div>
 
                         {/* Assistant Content (Flush Left, No Bubble) */}
@@ -672,11 +685,6 @@ export default function Chat() {
                                     <div className="my-6 rounded-xl overflow-hidden border border-gray-200/80 dark:border-gray-800 shadow-sm bg-[#1e1e1e]">
                                       <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800/60">
                                         <span className="text-xs font-mono text-gray-400 lowercase">{lang}</span>
-                                        <div className="flex gap-1.5">
-                                          <div className="w-2.5 h-2.5 rounded-full bg-red-400/40"></div>
-                                          <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/40"></div>
-                                          <div className="w-2.5 h-2.5 rounded-full bg-green-400/40"></div>
-                                        </div>
                                       </div>
                                       <SyntaxHighlighter
                                         {...rest}
@@ -754,10 +762,8 @@ export default function Chat() {
             {isChatLoading && messages[messages.length - 1]?.role === 'user' && (
               <div className="flex w-full justify-start mt-6">
                 <div className="flex w-full max-w-full gap-4 md:gap-6 items-start">
-                  <div className="w-8 h-8 rounded-full bg-black dark:bg-white flex items-center justify-center shrink-0 mt-1 shadow-sm ring-1 ring-black/5 dark:ring-white/10 opacity-70">
-                    <svg className="w-4 h-4 text-white dark:text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
+                  <div className="w-8 h-8 flex items-center justify-center shrink-0 mt-1 opacity-70 animate-pulse">
+                    <CodexaLogo size="sm" />
                   </div>
                   <div className="flex flex-col gap-3 w-full max-w-2xl pt-2">
                     <div className="h-4 bg-gray-200 dark:bg-gray-800/80 rounded-md w-full animate-pulse"></div>
@@ -798,7 +804,7 @@ export default function Chat() {
               </div>
             </form>
             <div className="text-center mt-3 text-[11px] text-gray-400 dark:text-gray-500 font-medium tracking-wide">
-              AI Codebase Assistant can make mistakes. Verify important code.
+              Codexa can make mistakes. Verify important code.
             </div>
           </div>
         </div>

@@ -5,6 +5,8 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+import CodexaLogo from '@/components/CodexaLogo';
+
 export default function SignInPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -39,9 +41,10 @@ export default function SignInPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-black p-4">
       <div className="w-full max-w-md p-8 border border-gray-200 dark:border-gray-800 rounded-2xl bg-gray-50 dark:bg-[#111111] shadow-xl">
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 flex flex-col items-center">
+          <CodexaLogo size="lg" className="mb-4" />
           <h1 className="text-3xl font-bold text-black dark:text-white">Welcome Back</h1>
-          <p className="text-gray-500 mt-2">Sign in to continue to CodeLens</p>
+          <p className="text-gray-500 mt-2">Sign in to continue to Codexa</p>
         </div>
 
         {error && (
